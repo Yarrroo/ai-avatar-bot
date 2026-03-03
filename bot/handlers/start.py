@@ -8,36 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.repositories import AvatarRepository, UserRepository
 from bot.keyboards.inline import avatar_selection_keyboard
+from bot.keyboards.reply import main_keyboard, remove_keyboard
 from bot.states.dialog import DialogState
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="start")
 
-# Avatar greetings keyed by avatar id -- sent in-character after selection.
-AVATAR_GREETINGS: dict[int, str] = {
-    1: (
-        "<i>*поправляет очки и спрыгивает с книжной полки*</i>\n\n"
-        "Мур-р-р, наконец-то достойный собеседник! Я — Учёный кот, "
-        "профессор всего на свете.\n\n"
-        "Могу объяснить квантовую физику, разобрать теорему Ферма или "
-        "просто поболтать о смысле бытия. Правда, 10% моего внимания "
-        "всегда занимает солнечный зайчик на стене.\n\n"
-        "О чём поговорим?"
-    ),
-    2: (
-        "Йо 👋\n\n"
-        "Ладно, я Макс. Мне 17, и я знаю про этот мир больше, чем хотелось бы. "
-        "Могу помочь с чем угодно — от домашки по физике до экзистенциального кризиса.\n\n"
-        "Только давай без банальностей, ок? Спрашивай что-нибудь интересное."
-    ),
-    3: (
-        "Здравствуй.\n\n"
-        "Присядь, огонь в очаге ещё тёплый, а чай настоялся как раз к твоему приходу. "
-        "Каждая встреча — это дар, и я рад, что наши дороги пересеклись.\n\n"
-        "Расскажи, что у тебя на душе. Я слушаю."
-    ),
-}
+_DEFAULT_GREETING = "Привет! Давай пообщаемся!"
 
 
 def _build_welcome_text(avatars: list) -> str:
@@ -99,8 +77,8 @@ async def avatar_chosen(
         "<i>Напиши что угодно, чтобы начать общение.</i>"
     )
 
-    # Send avatar greeting in-character
-    greeting = AVATAR_GREETINGS.get(avatar_id, f"Привет! Я — {avatar.name}. Давай пообщаемся!")
-    await callback.message.answer(greeting)
+    # Send avatar greeting in-character with persistent reply keyboard
+    greeting = avatar.greeting or _DEFAULT_GREETING
+    await callback.message.answer(greeting, reply_markup=main_keyboard())
 
     await callback.answer()

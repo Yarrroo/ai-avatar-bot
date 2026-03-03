@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import F, Router
@@ -14,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="chat")
 
+# Per-user lock to prevent concurrent LLM calls for the same user
+_user_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_user_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in _user_locks:
+        _user_locks[user_id] = asyncio.Lock()
+    return _user_locks[user_id]
+
 
 @router.message(DialogState.chatting, F.text)
 async def handle_message(
@@ -26,54 +36,63 @@ async def handle_message(
     """Process user message: build context, call LLM, stream response, save both."""
     data = await state.get_data()
     avatar_id = data["avatar_id"]
-    memory = MemoryService(session)
+    user_id = message.from_user.id
 
-    try:
-        # 1. Save user message FIRST so concurrent requests see it
-        await memory.save_message(
-            user_id=message.from_user.id,
-            avatar_id=avatar_id,
-            role="user",
-            content=message.text,
-        )
+    lock = _get_user_lock(user_id)
+    if lock.locked():
+        await message.answer("\u23f3 Подожди, я ещё думаю над предыдущим сообщением...")
+        return
 
-        # 2. Build prompt: system prompt + facts + recent history
-        #    (current message is already in DB from step 1)
-        prompt_messages = await memory.build_prompt(
-            user_id=message.from_user.id,
-            avatar_id=avatar_id,
-        )
-
-        # 3. Stream LLM response to Telegram
-        full_response = await stream_response_to_telegram(
-            bot=message.bot,
-            chat_id=message.chat.id,
-            llm_service=llm_service,
-            messages=prompt_messages,
-        )
-
-        # 4. Save assistant response to DB
-        if full_response:
+    async with lock:
+        memory = MemoryService(session)
+        try:
+            # 1. Save user message FIRST so concurrent requests see it
             await memory.save_message(
-                user_id=message.from_user.id,
+                user_id=user_id,
                 avatar_id=avatar_id,
-                role="assistant",
-                content=full_response,
+                role="user",
+                content=message.text,
             )
 
-        # 5. Trigger fact extraction if interval reached (background task)
-        await memory.maybe_extract_facts(
-            user_id=message.from_user.id,
-            avatar_id=avatar_id,
-            llm=llm_service,
-            session_factory=session_factory,
-        )
+            # 2. Build prompt: system prompt + facts + recent history
+            #    (current message is already in DB from step 1)
+            prompt_messages = await memory.build_prompt(
+                user_id=user_id,
+                avatar_id=avatar_id,
+            )
 
-    except Exception:
-        logger.exception("Error handling message from user %s", message.from_user.id)
-        await message.answer(
-            "\u26a0\ufe0f Что-то пошло не так. Попробуй ещё раз."
-        )
+            # 3. Stream LLM response to Telegram
+            full_response = await stream_response_to_telegram(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                llm_service=llm_service,
+                messages=prompt_messages,
+            )
+
+            # 4. Save assistant response to DB
+            if full_response:
+                await memory.save_message(
+                    user_id=user_id,
+                    avatar_id=avatar_id,
+                    role="assistant",
+                    content=full_response,
+                )
+
+            # 5. Trigger fact extraction if interval reached (background task)
+            await memory.maybe_extract_facts(
+                user_id=user_id,
+                avatar_id=avatar_id,
+                llm=llm_service,
+                session_factory=session_factory,
+                bot=message.bot,
+                chat_id=message.chat.id,
+            )
+
+        except Exception:
+            logger.exception("Error handling message from user %s", user_id)
+            await message.answer(
+                "\u26a0\ufe0f Что-то пошло не так. Попробуй ещё раз."
+            )
 
 
 @router.message(DialogState.chatting, ~F.text)

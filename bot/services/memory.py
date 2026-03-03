@@ -1,16 +1,15 @@
 import asyncio
 import logging
 
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import settings
 from bot.database.repositories import MessageRepository, FactRepository, AvatarRepository
 from bot.services.fact_extractor import extract_facts_background
+from bot.utils.text import escape_html
 
 logger = logging.getLogger(__name__)
-
-# In-memory counter for fact extraction triggers: (user_id, avatar_id) -> count
-_extraction_counters: dict[tuple[int, int], int] = {}
 
 
 class MemoryService:
@@ -87,18 +86,47 @@ class MemoryService:
         avatar_id: int,
         llm: "LLMService",
         session_factory: "async_sessionmaker",
+        bot: Bot | None = None,
+        chat_id: int | None = None,
     ) -> None:
         """Trigger background fact extraction if message count threshold is reached.
 
-        Uses an in-memory counter per (user_id, avatar_id) pair.
-        On trigger, spawns a background task with its own DB session.
+        Uses a DB-based counter (messages since last extraction) so it
+        survives restarts and works across multiple instances.
+        If bot and chat_id are provided, sends a notification about new facts.
         """
-        key = (user_id, avatar_id)
-        _extraction_counters[key] = _extraction_counters.get(key, 0) + 1
+        count = await self.message_repo.count_messages_since_last_extraction(
+            user_id=user_id,
+            avatar_id=avatar_id,
+        )
 
-        if _extraction_counters[key] >= settings.fact_extraction_interval:
-            _extraction_counters[key] = 0
-            # Fire and forget — do not block the user response
+        if count >= settings.fact_extraction_interval:
             asyncio.create_task(
-                extract_facts_background(user_id, avatar_id, session_factory, llm)
+                _extract_and_notify(
+                    user_id, avatar_id, session_factory, llm, bot, chat_id,
+                )
             )
+
+
+async def _extract_and_notify(
+    user_id: int,
+    avatar_id: int,
+    session_factory: "async_sessionmaker",
+    llm: "LLMService",
+    bot: Bot | None,
+    chat_id: int | None,
+) -> None:
+    """Run fact extraction and send a notification if new facts were found."""
+    new_facts = await extract_facts_background(
+        user_id, avatar_id, session_factory, llm,
+    )
+    if new_facts and bot and chat_id:
+        try:
+            facts_list = ", ".join(escape_html(f) for f in new_facts[:3])
+            suffix = f" и ещё {len(new_facts) - 3}" if len(new_facts) > 3 else ""
+            await bot.send_message(
+                chat_id,
+                f"\U0001f9e0 Запомнил: {facts_list}{suffix}",
+            )
+        except Exception:
+            logger.debug("Failed to send fact notification to chat %s", chat_id)
