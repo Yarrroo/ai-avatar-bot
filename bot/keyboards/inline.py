@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 if TYPE_CHECKING:
-    from bot.database.models import Avatar
+    from bot.database.models import Avatar, MemoryFact
 
 
 def avatar_selection_keyboard(avatars: list[Avatar]) -> InlineKeyboardMarkup:
@@ -38,7 +38,7 @@ def reset_confirmation_keyboard() -> InlineKeyboardMarkup:
 
 
 def fact_deletion_keyboard(
-    facts: list,
+    facts: list[MemoryFact],
     page: int = 0,
     total: int = 0,
     per_page: int = 10,

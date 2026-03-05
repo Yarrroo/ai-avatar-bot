@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from aiogram import Bot
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.config import settings
 from bot.database.repositories import MessageRepository, FactRepository, AvatarRepository
 from bot.services.fact_extractor import extract_facts_background
 from bot.utils.text import escape_html
+
+if TYPE_CHECKING:
+    from bot.services.llm import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +90,8 @@ class MemoryService:
         self,
         user_id: int,
         avatar_id: int,
-        llm: "LLMService",
-        session_factory: "async_sessionmaker",
+        llm: LLMService,
+        session_factory: async_sessionmaker[AsyncSession],
         bot: Bot | None = None,
         chat_id: int | None = None,
     ) -> None:

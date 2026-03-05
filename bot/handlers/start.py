@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
@@ -8,8 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.repositories import AvatarRepository, UserRepository
 from bot.keyboards.inline import avatar_selection_keyboard
-from bot.keyboards.reply import main_keyboard, remove_keyboard
+from bot.keyboards.reply import main_keyboard
 from bot.states.dialog import DialogState
+
+if TYPE_CHECKING:
+    from bot.database.models import Avatar
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +24,7 @@ router = Router(name="start")
 _DEFAULT_GREETING = "Привет! Давай пообщаемся!"
 
 
-def _build_welcome_text(avatars: list) -> str:
+def _build_welcome_text(avatars: list[Avatar]) -> str:
     """Build welcome message with avatar descriptions."""
     avatar_lines = "\n".join(
         f"  {a.emoji} <b>{a.name}</b>\n     <i>{a.description}</i>" for a in avatars

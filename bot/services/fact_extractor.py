@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import json
 import logging
 import re
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from bot.database.models import MemoryFact, DialogMessage
 from bot.config import settings
+
+if TYPE_CHECKING:
+    from bot.services.llm import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +165,7 @@ async def extract_facts_background(
     user_id: int,
     avatar_id: int,
     session_factory: async_sessionmaker,
-    llm: "LLMService",
+    llm: LLMService,
 ) -> list[str]:
     """Background task: extract facts from recent messages.
 
